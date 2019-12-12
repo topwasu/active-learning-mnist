@@ -26,7 +26,8 @@ def read_images(dir):
 	:param dir: str, directory path
 	:return: 4-d tensor, the images
 	"""
-	normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+	imagenet_mean = np.asarray([0.485, 0.456, 0.406])
+	imagenet_std = np.asarray([0.229, 0.224, 0.225])
 	
 	list_imgs = []
 	for filename in os.listdir(dir):
@@ -34,7 +35,7 @@ def read_images(dir):
 			img = Image.open(os.path.join(dir, filename))
 			rgbimg = img.convert('RGB')
 			rgbimg = np.asarray(rgbimg) / 255.0
-			normalized_rgbimg = normalize(rgbimg)
+			normalized_rgbimg = rgbimg - imagenet_mean / imagenet_std
 			list_imgs.append(normalized_rgbimg)
 	return torch.stack(list_imgs)
 			
@@ -51,6 +52,7 @@ def main():
 	test_images_dir = os.path.join(dir_path, 'data', 'mnist_sample', 'test')
 	train_images = read_images(train_images_dir)
 	test_images = read_images(test_images_dir)
+	print(train_images.shape)
 	
 	# TODO: First step
 	

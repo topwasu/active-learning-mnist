@@ -18,7 +18,7 @@ def request_labels(wanted_list, df):
 	"""
 	labels = []
 	for id in wanted_list:
-		labels.append(df.loc[df['id'] == id, 'label'].to_numpy(dtype=np.int)[0])
+		labels.append(df.loc[df['id'] == id, 'label'].to_numpy(dtype=np.int64)[0])
 	return torch.as_tensor(labels)
 
 
@@ -33,6 +33,7 @@ def read_images(dir):
 	
 	list_imgs = []
 	list_imgs_names = []
+	ct = 0
 	for filename in os.listdir(dir):
 		if filename.endswith('.png'):
 			list_imgs_names.append(filename)
@@ -41,23 +42,32 @@ def read_images(dir):
 			rgbimg = img.convert('RGB')
 			rgbimg = np.asarray(rgbimg) / 255.0
 			normalized_rgbimg = rgbimg - imagenet_mean / imagenet_std
-			list_imgs.append(torch.from_numpy(normalized_rgbimg))
+			list_imgs.append(torch.from_numpy(normalized_rgbimg.astype(np.float32)))
 	list_imgs = torch.stack(list_imgs)
-	return torch.nn.functional.interpolate(list_imgs, (224, 224)), np.asarray(list_imgs_names)
+	list_imgs = list_imgs.permute(0, 3, 1, 2)
+	return list_imgs, np.asarray(list_imgs_names)
 
 
-def get_least_confident(images, images_names, model, num_least_confident, batch_size=0):
+def get_least_confident(images, model, num_least_confident, batch_size=64):
+	"""
+	choose least confident images
+	:param images: 4-d tensor
+	:param model: model
+	:param num_least_confident: int, number of least confident images
+	:param batch_size: int
+	:return: ndarray of int, indices of the images with least confidence
+	"""
 	model.eval()
 	num_len = images.shape[0]
 	ct = 0
 	list_logits = []
 	while ct < num_len:
-		batch_images = images[ct:min(ct + batch_size, num_len)]
+		batch_images = images[ct:min(ct + batch_size, num_len)].clone()
 		
 		if torch.cuda.is_available():
 			batch_images = batch_images.cuda()
 		
-		logits = model(batch_images)
+		logits = model(torch.nn.functional.interpolate(batch_images, (224, 224)))
 		list_logits.append(logits)
 		
 		ct += batch_size
@@ -109,7 +119,7 @@ def train(images, labels, model, num_epochs, lr=1e-3, batch_size=64, verbose=Fal
 			
 			optimizer.zero_grad()
 			
-			logits = model(batch_images)
+			logits = model(torch.nn.functional.interpolate(batch_images, (224, 224)))
 			loss = classification_criterion(logits, batch_labels)
 			
 			loss.backward()
@@ -121,7 +131,8 @@ def train(images, labels, model, num_epochs, lr=1e-3, batch_size=64, verbose=Fal
 			ct += batch_size
 		
 		if verbose:
-			print(f'Train Epoch {ep} at time {(time.time() - st) / 60.0} mins - average accuracy = {total_acc / num_len}')
+			print(
+				f'Train Epoch {ep} at time {(time.time() - st) / 60.0} mins - average accuracy = {total_acc / num_len}')
 
 
 def test(images, labels, model, batch_size=64):
@@ -138,14 +149,14 @@ def test(images, labels, model, batch_size=64):
 	ct = 0
 	total_acc = 0
 	while ct < num_len:
-		batch_images = images[ct:min(ct + batch_size, num_len)]
-		batch_labels = labels[ct:min(ct + batch_size, num_len)]
+		batch_images = images[ct:min(ct + batch_size, num_len)].clone()
+		batch_labels = labels[ct:min(ct + batch_size, num_len)].clone()
 		
 		if torch.cuda.is_available():
 			batch_images = batch_images.cuda()
 			batch_labels = batch_labels.cuda()
 		
-		logits = model(batch_images)
+		logits = model(torch.nn.functional.interpolate(batch_images, (224, 224)))
 		total_acc += calc_accuracy(logits, batch_labels) * batch_labels.shape[0]
 		
 		ct += batch_size
@@ -185,7 +196,7 @@ def main():
 	for cp in range(2, 4, 1):
 		rest_train_images = train_images[np.logical_not(np.isin(train_images_names, images_names))]
 		rest_train_images_names = train_images_names[np.logical_not(np.isin(train_images_names, images_names))]
-		wanted_indices = get_least_confident(rest_train_images, rest_train_images_names, resnet, 1000)
+		wanted_indices = get_least_confident(rest_train_images, resnet, 1000)
 		labeled_images = torch.cat([labeled_images, rest_train_images[wanted_indices]])
 		images_names = np.concatenate(images_names, rest_train_images_names[wanted_indices])
 		labels = request_labels(images_names, train_df)

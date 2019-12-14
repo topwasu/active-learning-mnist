@@ -68,10 +68,10 @@ def get_least_confident(images, model, num_least_confident, batch_size=64):
 			batch_images = batch_images.cuda()
 		
 		logits = model(torch.nn.functional.interpolate(batch_images, (224, 224)))
-		list_logits.append(logits)
+		list_logits.append(logits.cpu().detach().numpy())
 		
 		ct += batch_size
-	all_logits = torch.cat(list_logits).cpu().detach().numpy()
+	all_logits = np.concatenate(list_logits)
 	confidence = all_logits.max(axis=1)
 	return np.argsort(confidence)[:num_least_confident]
 
@@ -187,7 +187,7 @@ def main():
 	images_names = train_images_names[indices]
 	labels = request_labels(images_names, train_df)
 	
-	train(labeled_images, labels, resnet, 100, verbose=True)
+	train(labeled_images, labels, resnet, 20, verbose=True)
 	
 	print(f'Checkpoint 1 accuracy: {test(test_images, test_labels, resnet)}')
 	# --------------------------------------------------------------------------
@@ -198,10 +198,10 @@ def main():
 		rest_train_images_names = train_images_names[np.logical_not(np.isin(train_images_names, images_names))]
 		wanted_indices = get_least_confident(rest_train_images, resnet, 1000)
 		labeled_images = torch.cat([labeled_images, rest_train_images[wanted_indices]])
-		images_names = np.concatenate(images_names, rest_train_images_names[wanted_indices])
+		images_names = np.concatenate([images_names, rest_train_images_names[wanted_indices]])
 		labels = request_labels(images_names, train_df)
 		
-		train(labeled_images, labels, resnet, 100, verbose=True)
+		train(labeled_images, labels, resnet, 20, verbose=True)
 		
 		print(f'Checkpoint {cp} accuracy: {test(test_images, test_labels, resnet)}')
 	# --------------------------------------------------------------------------
